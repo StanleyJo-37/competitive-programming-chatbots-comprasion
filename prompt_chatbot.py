@@ -60,7 +60,9 @@ for prompt in prompts:
       'content': message_content,
       'completion_tokens': data.get('usage', {}).get('completion_tokens', 0),
       'prompt_tokens': data.get('usage', {}).get('prompt_tokens', 0),
-      'timestamp': pd.Timestamp.now()
+      'timestamp': pd.Timestamp.now(),
+      'inputs': prompt['input_output']['inputs'],
+      'outputs': prompt['input_output']['outputs'],
     }
 
     # Append to the results DataFrame
