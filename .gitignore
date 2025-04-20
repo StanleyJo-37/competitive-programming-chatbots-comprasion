@@ -1,3 +1,4 @@
 .env
 prompts/input.csv
 responses/*.csv
+/venv/
