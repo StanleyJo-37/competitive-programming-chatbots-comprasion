@@ -2,6 +2,10 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from google import genai
+import pandas as pd
+from typing import Literal
+
+Model = Literal['gemini', 'deepseek', 'chatgpt']
 
 load_dotenv()
 
@@ -13,10 +17,10 @@ def initDeepSeekV3Model():
   api_key = os.getenv("DEEPSEEK_API_KEY")
   base_url = os.getenv("DEEPSEEK_BASE_URL")
 
-  if api_key == None or len(api_key) <= 0:
+  if not api_key:
     raise Exception("DEEPSEEK_API_KEY not found.")
   
-  if base_url == None or len(base_url) <= 0:
+  if not base_url:
     raise Exception("DEEPSEEK_BASE_URL not found.")
 
   client = OpenAI(api_key=api_key,base_url=base_url)
@@ -27,7 +31,7 @@ def initDeepSeekV3Model():
 def initGeminiPro25PreviewModel():
   api_key = os.getenv("GEMINI_API_KEY")
 
-  if api_key == None or len(api_key) <= 0:
+  if not api_key:
     raise Exception("GEMINI_API_KEY not found.")
 
   client = genai.Client(api_key=api_key)
@@ -35,14 +39,16 @@ def initGeminiPro25PreviewModel():
   global gemini
   gemini = client
 
+  print("Gemini Initialized.")
+
 def initChatGPT4oModel():
   api_key = os.getenv("CHATGPT_API_KEY")
   base_url = os.getenv("CHATGPT_BASE_URL")
 
-  if api_key == None or len(api_key) <= 0:
+  if not api_key:
     raise Exception("CHATGPT_API_KEY not found.")
   
-  if base_url == None or len(base_url) <= 0:
+  if not base_url:
     raise Exception("CHATGPT_BASE_URL not found.")
 
   client = OpenAI(api_key=api_key, base_url=base_url)
@@ -76,7 +82,7 @@ def promptGemini(prompt: str) -> bool:
     raise Exception("Gemini model is not initialized.")
   
   response = gemini.models.generate_content(
-    model="gemini-2.5-pro-preview", content=prompt
+    model="gemini-2.5-pro-exp-03-25", contents=prompt
   )
 
   return response.text
@@ -99,3 +105,12 @@ def promptChatGPT(prompt: str) -> bool:
   )
 
   return response.choices[0].message.content
+
+def fetchPrompts() -> pd.DataFrame:
+  prompts = pd.read_csv('./prompts/input.csv')
+  prompts = prompts.loc[~prompts['done']]
+
+  return prompts
+
+if __name__ == '__main__':
+  

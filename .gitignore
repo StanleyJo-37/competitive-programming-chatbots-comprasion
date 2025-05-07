@@ -2,3 +2,4 @@
 prompts/input.csv
 responses/*.csv
 /venv/
+.env.template
