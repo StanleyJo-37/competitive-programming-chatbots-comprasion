@@ -3,3 +3,5 @@ pandas
 python-dotenv
 requests
 psutil
+openai
+google-genai
