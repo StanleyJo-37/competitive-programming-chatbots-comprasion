@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai.errors import APIError, ClientError, UnknownFunctionCallArgumentError
 import pandas as pd
-from typing import Literal
+from typing import Literal, List, Tuple
 import sys
 
 Model = Literal['gemini', 'deepseek', 'chatgpt']
@@ -16,7 +16,16 @@ deepseek = None
 gemini = None
 chatgpt = None
 
-all_prompts = pd.read_csv('./prompts/input.csv')
+model_csv_names = {
+  'gemini': 'gemini_2.0_flash_solutions.csv',
+  'deepseek': 'deepseek_r1_flash_solutions.csv',
+  'chatgpt': 'chatgpt_4o_solutions.csv',
+}
+
+INPUT_CSV = './prompts/input.csv'
+RESPONSE_PATH = './responses/'
+
+all_prompts = pd.read_csv()
 
 def initDeepSeekV3Model() -> bool:
   try:
@@ -97,7 +106,7 @@ def completePrompt(idx: int) -> None:
 def unload() -> None:
   all_prompts.to_csv('./prompts/input.csv')
 
-def promptDeepSeek(idx: int):
+def promptDeepSeek(idx: int) -> str:
   global deepseek
 
   if deepseek == None:
@@ -122,7 +131,7 @@ def promptDeepSeek(idx: int):
 
   return response.choices[0].message.content
 
-def promptGemini(idx: int):
+def promptGemini(idx: int) -> str:
   global gemini
 
   if gemini == None:
@@ -138,7 +147,7 @@ def promptGemini(idx: int):
 
   return response.text
 
-def promptChatGPT(idx: int) -> bool:
+def promptChatGPT(idx: int) -> str:
   global chatgpt
 
   if chatgpt == None:
@@ -158,6 +167,34 @@ def promptChatGPT(idx: int) -> bool:
 
   return response.choices[0].message.content
 
+def save_responses(responses: List[Tuple[int, str]], model: Model) -> int:
+  saved_response_count = 0
+
+  path = f'{RESPONSE_PATH}/{model_csv_names[model]}'
+  df = None
+  if os.path.isfile(path):
+    df = pd.read_csv(path)
+  else:
+    columns = list(all_prompts.columns[:-1]) + ['response']
+    df = pd.DataFrame(columns=columns)
+
+  new_responses = []
+
+  for response in responses:
+    try:
+      new_response = all_prompts.iloc[response[0], :-1].copy()
+      new_response['response'] = response[1]
+      new_responses.append(new_response)
+      completePrompt(response[0])
+      saved_response_count += 1
+    except Exception as e:
+      print(f'Unexpected Error: {str(e)}')
+
+  if new_responses and len(new_responses):
+    df = pd.concat([df, pd.DataFrame(new_responses)], ignore_index=True)
+    df.to_csv(path, index=False)
+
+  return saved_response_count
 
 if __name__ == '__main__':
   args = sys.argv
@@ -183,8 +220,19 @@ if __name__ == '__main__':
     initGeminiPro25PreviewModel()
     fn_call = promptGemini
 
+  responses = []
+  prompt_count = 0
   for index in indices:
-    fn_call(index)
-    completePrompt(index)
+    try:
+      response = fn_call(index)
+      responses.append((index, response))
+      prompt_count += 1
+    except Exception as e:
+      print(f'Unexpected Error: {str(e)}')
+  
+  print(f'Prompted {prompt_count} problem sets.')
+
+  saved_response_count = save_responses(responses, model)
+  print(f'Saved {saved_response_count} responses.')
 
   unload()
