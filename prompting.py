@@ -7,6 +7,7 @@ from google.genai.errors import APIError, ClientError, UnknownFunctionCallArgume
 import pandas as pd
 from typing import Literal, List, Tuple
 import sys
+import google.generativeai as genai
 
 Model = Literal['gemini', 'deepseek', 'chatgpt']
 
@@ -51,29 +52,32 @@ def initDeepSeekV3Model() -> bool:
     
 
 def initGeminiPro25PreviewModel() -> bool:
-  try:
-    api_key = os.getenv("GEMINI_API_KEY")
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            print("GEMINI_API_KEY not found.")
+            return False
 
-    if not api_key:
-      print("GEMINI_API_KEY not found.")
-      return False
+        genai.configure(api_key=api_key)
 
-    client = genai.Client(api_key=api_key)
+        global gemini
+        gemini = genai.GenerativeModel(model_name="gemini-2.5-pro-exp-03-25")  # ✅
 
-    global gemini
-    gemini = client
+        print("Gemini Initialized.")
+        return True
+    except UnknownFunctionCallArgumentError as e:
+        print(f"Invalid input: {e.message}")
+        return False
+    except APIError as e:
+        print(f"API error: {e.message}")
+        return False
+    except ClientError as e:
+        print(f"Client error: {e.message}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        return False
 
-    print("Gemini Initialized.")
-    return True
-  except UnknownFunctionCallArgumentError as e:
-    print(f"Invalid input: {e.message}")
-    return False
-  except APIError as e:
-    print(f"API error: {e.message}")
-    return False
-  except ClientError as e:
-    print(f"API error: {e.message}")
-    return False
 
 def initChatGPT4oModel() -> bool:
   try:
@@ -82,7 +86,7 @@ def initChatGPT4oModel() -> bool:
 
     if not api_key:
       print("CHATGPT_API_KEY not found.")
-      return True
+      return False
     
     if not base_url:
       print("CHATGPT_BASE_URL not found.")
@@ -98,10 +102,10 @@ def initChatGPT4oModel() -> bool:
     return False
   
 def getPrompt(idx: int) -> str:
-  return all_prompts[idx, 'prompts']
+  return all_prompts.loc[idx, 'prompts']
 
 def completePrompt(idx: int) -> None:
-  all_prompts[idx, 'done'] = True
+  all_prompts.loc[idx, 'done'] = True
 
 def unload() -> None:
   all_prompts.to_csv('./prompts/input.csv')
@@ -109,7 +113,7 @@ def unload() -> None:
 def promptDeepSeek(idx: int) -> str:
   global deepseek
 
-  if deepseek == None:
+  if deepseek is None:
     raise Exception("DeepSeek model is not initialized.")
   
   try:
@@ -124,28 +128,31 @@ def promptDeepSeek(idx: int) -> str:
       stream=False,
       temperature=0.0,
     )
+    return response.choices[0].message.content
   except OpenAIExceptions.RateLimitError as e:
     print(f'Rate Limit Error: {e.message}')
   except Exception as e:
-    print(f'Unexpected Erorr: {str(e)}')
-
-  return response.choices[0].message.content
+    print(f'Unexpected Error: {str(e)}')
+  
+  return ""
 
 def promptGemini(idx: int) -> str:
-  global gemini
+    global gemini
 
-  if gemini == None:
-    raise Exception("Gemini model is not initialized.")
-  
-  response = gemini.models.generate_content(
-    model="gemini-2.5-pro-exp-03-25",
-    contents=getPrompt(idx),
-    config={
-      'temperature': 0.0,
-    },
-  )
+    if gemini is None:
+        raise Exception("Gemini model is not initialized.")
 
-  return response.text
+    try:
+        response = gemini.generate_content(
+            contents=getPrompt(idx),
+            generation_config={
+                'temperature': 0.0,
+            }
+        )
+        return response.text
+    except Exception as e:
+        print(f"Error while prompting Gemini: {str(e)}")
+        return ""
 
 def promptChatGPT(idx: int) -> str:
   global chatgpt
@@ -182,7 +189,8 @@ def save_responses(responses: List[Tuple[int, str]], model: Model) -> int:
 
   for response in responses:
     try:
-      new_response = all_prompts.iloc[response[0], :-1].copy()
+      # new_response = all_prompts.iloc[response[0], :-1].copy()
+      new_response = all_prompts.loc[response[0]].drop('done').copy()
       new_response['response'] = response[1]
       new_responses.append(new_response)
       completePrompt(response[0])
