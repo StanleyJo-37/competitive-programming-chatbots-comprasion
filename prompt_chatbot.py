@@ -12,7 +12,7 @@ OUTPUT_PATH = './responses'
 MODELS = [('chatgpt-4o-latest', 'chatgpt_4o_solutions.csv'), ('deepseek/deepseek-r1', 'deepseek-r1-solutions.csv'), ('google/gemini-2.0-flash', 'gemini_2.0_flash_solutions.csv')]
 model_index = 0
 model = MODELS[model_index][0]
-response_directory = f'{INPUT_PATH}/{MODELS[model_index][1]}'
+response_directory = f'{OUTPUT_PATH}/{MODELS[model_index][1]}'
 
 input_df = pd.DataFrame(INPUT_DIRECTORY)
 response_df = pd.DataFrame(response_directory)
@@ -40,7 +40,7 @@ for prompt in prompts:
       "messages":[
         {
           "role":"user",
-          "content":prompt
+          "content":prompt['prompts']
         }
       ]
     }
@@ -61,8 +61,8 @@ for prompt in prompts:
       'completion_tokens': data.get('usage', {}).get('completion_tokens', 0),
       'prompt_tokens': data.get('usage', {}).get('prompt_tokens', 0),
       'timestamp': pd.Timestamp.now(),
-      'inputs': prompt['input_output']['inputs'],
-      'outputs': prompt['input_output']['outputs'],
+      'inputs': prompt['inputs'],
+      'outputs': prompt['outputs'],
     }
 
     # Append to the results DataFrame
