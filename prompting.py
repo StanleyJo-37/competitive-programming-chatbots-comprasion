@@ -205,7 +205,7 @@ if __name__ == '__main__':
   except Exception as e:
     print(f'The second argument must be an integer: {e}')
   
-  if model != 'deepseek' or model != 'chatgpt' or model != 'gemini':
+  if model not in ['deepseek', 'chatgpt', 'gemini']:
     raise Exception("The first argument must be deepseek, chatgpt, or gemini")
 
   indices = all_prompts[~all_prompts['done']].sample(number_of_row).index.sort_values()
