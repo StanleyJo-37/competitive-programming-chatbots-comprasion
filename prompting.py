@@ -25,7 +25,7 @@ model_csv_names = {
 INPUT_CSV = './prompts/input.csv'
 RESPONSE_PATH = './responses/'
 
-all_prompts = pd.read_csv()
+all_prompts = pd.read_csv(INPUT_CSV)
 
 def initDeepSeekV3Model() -> bool:
   try:
