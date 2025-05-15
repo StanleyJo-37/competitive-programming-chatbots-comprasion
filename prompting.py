@@ -27,7 +27,7 @@ model_csv_names = {
 INPUT_CSV = './prompts/input.csv'
 RESPONSE_PATH = './responses/'
 
-all_prompts = pd.read_csv(INPUT_CSV)
+all_prompts = pd.read_csv(INPUT_CSV, index_col=0)
 
 def initDeepSeekV3Model() -> bool:
   try:
@@ -112,7 +112,7 @@ def completePrompt(idx: int) -> None:
 def unload() -> None:
   all_prompts.to_csv('./prompts/input.csv')
 
-def promptDeepSeek(idx: int) -> str:
+def promptDeepSeek(idx: int) -> Tuple[str, int, int]:
   global deepseek
 
   if deepseek is None:
@@ -130,15 +130,15 @@ def promptDeepSeek(idx: int) -> str:
       stream=False,
       temperature=0.0,
     )
-    return response.choices[0].message.content
+    return (response.choices[0].message.content, response.usage.prompt_tokens, response.usage.completion_tokens)
   except OpenAIExceptions.RateLimitError as e:
     print(f'Rate Limit Error: {e.message}')
   except Exception as e:
     print(f'Unexpected Error: {str(e)}')
   
-  return ""
+  return ("",0)
 
-def promptGemini(idx: int) -> str:
+def promptGemini(idx: int) -> Tuple[str, int, int]:
     global gemini
 
     if gemini is None:
@@ -151,12 +151,12 @@ def promptGemini(idx: int) -> str:
                 'temperature': 0.0,
             }
         )
-        return response.text
+        return (response.text, response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count)
     except Exception as e:
         print(f"Error while prompting Gemini: {str(e)}")
-        return ""
+        return ("",0)
 
-def promptChatGPT(idx: int) -> str:
+def promptChatGPT(idx: int) -> Tuple[str, int, int]:
   global chatgpt
 
   if chatgpt == None:
@@ -174,9 +174,9 @@ def promptChatGPT(idx: int) -> str:
     temperature=0.0,
   )
 
-  return response.choices[0].message.content
+  return (response.choices[0].message.content, response.usage.prompt_tokens, response.usage.completion_tokens)
 
-def save_responses(responses: List[Tuple[int, str]], model: Model) -> int:
+def save_responses(responses: List[Tuple[int, str, int, int, float]], model: Model) -> int:
   saved_response_count = 0
 
   path = f'{RESPONSE_PATH}/{model_csv_names[model]}'
@@ -184,7 +184,7 @@ def save_responses(responses: List[Tuple[int, str]], model: Model) -> int:
   if os.path.isfile(path):
     df = pd.read_csv(path)
   else:
-    columns = list(all_prompts.columns[:-1]) + ['response']
+    columns = list(all_prompts.columns[:-1]) + ['response', 'prompt_tokens', 'output_tokens', 'generation_time']
     df = pd.DataFrame(columns=columns)
 
   new_responses = []
@@ -194,6 +194,9 @@ def save_responses(responses: List[Tuple[int, str]], model: Model) -> int:
       # new_response = all_prompts.iloc[response[0], :-1].copy()
       new_response = all_prompts.loc[response[0]].drop('done').copy()
       new_response['response'] = response[1]
+      new_response['prompt_tokens'] = response[2]
+      new_response['output_tokens'] = response[3]
+      new_response['generation_time'] = response[4]
       new_responses.append(new_response)
       completePrompt(response[0])
       saved_response_count += 1
@@ -247,10 +250,10 @@ if __name__ == '__main__':
     try:
       print(f'Prompting {i}...')
       start_time = time.time()
-      response = fn_call(index)
+      (response, prompt_token, out_token) = fn_call(index)
       elapsed = time.time() - start_time
       print(f'Prompt {i} took {elapsed:.2f} seconds.')
-      responses.append((index, response))
+      responses.append((index, response, prompt_token, out_token, elapsed))
       prompt_count += 1
       print(f'================ Next Prompt ================\n\n')
       if (i + 1) % delayevery == 0:
