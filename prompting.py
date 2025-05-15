@@ -8,6 +8,7 @@ import pandas as pd
 from typing import Literal, List, Tuple
 import sys
 import google.generativeai as genai
+import time
 
 Model = Literal['gemini', 'deepseek', 'chatgpt']
 
@@ -61,7 +62,8 @@ def initGeminiPro25PreviewModel() -> bool:
         genai.configure(api_key=api_key)
 
         global gemini
-        gemini = genai.GenerativeModel(model_name="gemini-2.5-pro-exp-03-25")  # ✅
+        # gemini = genai.GenerativeModel(model_name="gemini-2.5-pro-exp-03-25")  # ✅
+        gemini = genai.GenerativeModel(model_name="gemini-2.5-flash-preview-04-17")  # ✅
 
         print("Gemini Initialized.")
         return True
@@ -210,13 +212,24 @@ if __name__ == '__main__':
   try:
     model = args[1]
     number_of_row = int(args[2])
+    delayevery = int(args[3])
+    delaytime = int(args[4])
   except Exception as e:
     print(f'The second argument must be an integer: {e}')
   
   if model not in ['deepseek', 'chatgpt', 'gemini']:
     raise Exception("The first argument must be deepseek, chatgpt, or gemini")
 
-  indices = all_prompts[~all_prompts['done']].sample(number_of_row).index.sort_values()
+  try:
+    available_indices = all_prompts[~all_prompts['done']].index
+    if number_of_row > len(available_indices):
+      raise ValueError(f"Requested {number_of_row} rows, but only {len(available_indices)} available.")
+    indices = all_prompts[~all_prompts['done']].sample(number_of_row).index.sort_values()
+  except Exception as e:
+    print(f'Error while sampling: {str(e)}')
+    available = len(all_prompts[~all_prompts['done']])
+    print(f'Only {available} rows are available.')
+    sys.exit(1)
   
   if model == 'deepseek':
     initDeepSeekV3Model()
@@ -230,13 +243,22 @@ if __name__ == '__main__':
 
   responses = []
   prompt_count = 0
-  for index in indices:
+  for i,index in enumerate(indices):
     try:
+      print(f'Prompting {i}...')
+      start_time = time.time()
       response = fn_call(index)
+      elapsed = time.time() - start_time
+      print(f'Prompt {i} took {elapsed:.2f} seconds.')
       responses.append((index, response))
       prompt_count += 1
+      print(f'================ Next Prompt ================\n\n')
+      if (i + 1) % delayevery == 0:
+        print(f'Waiting for {delaytime} seconds to avoid rate limit...')
+        time.sleep(delaytime)
     except Exception as e:
       print(f'Unexpected Error: {str(e)}')
+      sys.exit(1)
   
   print(f'Prompted {prompt_count} problem sets.')
 
