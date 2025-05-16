@@ -26,7 +26,6 @@ for model in MODELS:
     
     assert len(outdf) == len(indf), "Input and output dataframes must have the same length."
 
-    
     outdf.reset_index(drop=True, inplace=True)
 
     # Initialize default values, for lists, they need to be initialized as empty lists for each row

@@ -136,7 +136,7 @@ def promptDeepSeek(idx: int) -> Tuple[str, int, int]:
   except Exception as e:
     print(f'Unexpected Error: {str(e)}')
   
-  return ("",0)
+  return ("",0,0)
 
 def promptGemini(idx: int) -> Tuple[str, int, int]:
     global gemini
@@ -154,7 +154,7 @@ def promptGemini(idx: int) -> Tuple[str, int, int]:
         return (response.text, response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count)
     except Exception as e:
         print(f"Error while prompting Gemini: {str(e)}")
-        return ("",0)
+        return ("",0,0)
 
 def promptChatGPT(idx: int) -> Tuple[str, int, int]:
   global chatgpt
@@ -261,7 +261,6 @@ if __name__ == '__main__':
         time.sleep(delaytime)
     except Exception as e:
       print(f'Unexpected Error: {str(e)}')
-      sys.exit(1)
   
   print(f'Prompted {prompt_count} problem sets.')
 
