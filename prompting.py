@@ -209,6 +209,19 @@ def save_responses(responses: List[Tuple[int, str, int, int, float]], model: Mod
 
   return saved_response_count
 
+def clean_cpp_code(response: str) -> str:
+  if response is None:
+    return ""
+  lines = response.splitlines()
+  cleaned_lines = []
+  for line in lines:
+    if line.strip().startswith("```cpp"):
+      continue
+    if line.strip() == "```":
+      continue
+    cleaned_lines.append(line)
+  return "\n".join(cleaned_lines)
+
 if __name__ == '__main__':
   args = sys.argv
 
@@ -252,6 +265,7 @@ if __name__ == '__main__':
       start_time = time.time()
       (response, prompt_token, out_token) = fn_call(index)
       elapsed = time.time() - start_time
+      response = clean_cpp_code(response)
       print(f'Prompt {i} took {elapsed:.2f} seconds.')
       responses.append((index, response, prompt_token, out_token, elapsed))
       prompt_count += 1
