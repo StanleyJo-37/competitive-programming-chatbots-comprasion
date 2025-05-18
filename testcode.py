@@ -6,6 +6,7 @@ import psutil
 import pandas as pd
 import numpy as np
 import sys
+import platform
 
 OUTPUT_PATH = './responses'
 INPUT_PATH = './prompts/input.csv'
@@ -25,6 +26,9 @@ else:
         MODELS = ['deepseek-r1-solutions.csv']
     elif model == "gemini":
         MODELS = ['gemini_2.5_flash_solutions.csv']
+
+# Detect OS once at the top
+OS_TYPE = platform.system().lower()  # 'windows', 'linux', 'darwin' (macOS)
 
 # indf = pd.read_csv(f"{INPUT_PATH}")
 # indf.reset_index(drop=True, inplace=True)
@@ -48,6 +52,15 @@ for model in MODELS:
 
     for i, data_row_values in enumerate(outdf.values): # Renamed 'data' to avoid confusion
         print(f"=================== Processing row {i + 1}/{len(outdf)} ===================")
+        # Get memory limit for current problem i
+        current_problem_memory_limit_str = outdf.loc[i, "memory_limit"] if pd.notna(outdf.loc[i, "memory_limit"]) and outdf.loc[i, "memory_limit"] else ""
+        if current_problem_memory_limit_str and "megabytes" in current_problem_memory_limit_str.lower():
+            memory_limit_val = int(current_problem_memory_limit_str.split()[0]) * 1024 * 1024 # Convert MB to Bytes
+        elif current_problem_memory_limit_str and "bytes" in current_problem_memory_limit_str.lower():
+            memory_limit_val = int(current_problem_memory_limit_str.split()[0]) # Already in Bytes
+        else: # Default if format is unknown or empty
+            memory_limit_val = MEMLIMIT # MEMLIMIT is in Bytes
+
 
         print(f"{prefix}Writing temp file ...")
         # Step 1: Write C++ code to temp file
@@ -85,8 +98,8 @@ for model in MODELS:
                     
                     print(f"{prefix}Testing test case {j+1} / {len(input_data)} ...")
                     try:
-                        start_time = time.perf_counter()
                         proc = subprocess.Popen([exe_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True)
+                        start_time = time.perf_counter()
                         ps_proc = psutil.Process(proc.pid)
 
                         # Send input to the program
@@ -104,29 +117,24 @@ for model in MODELS:
                                 # mem = ps_proc.memory_info().rss  # in bytes
                                 # peak_memory = max(peak_memory, mem)
                                 try:
-                                    mem_info = ps_proc.memory_info()
+                                    mem_info = ps_proc.memory_full_info()
+                                    if OS_TYPE == 'windows':
+                                        # On Windows, use 'private'
+                                        current_private = getattr(mem_info, 'private', mem_info.rss)
+                                    else:
+                                        # On Linux/macOS, use 'uss' if available, else fallback to 'rss'
+                                        current_private = getattr(mem_info, 'uss', mem_info.rss)
                                     current_rss = mem_info.rss
-                                    current_private = mem_info.private # Get private working set on Windows
-                                    
                                     peak_rss_memory = max(peak_rss_memory, current_rss)
                                     peak_private_memory = max(peak_private_memory, current_private)
-                                except psutil.NoSuchProcess: # Process might have ended
-                                    break 
-                                
-                                # Get memory limit for current problem i
-                                current_problem_memory_limit_str = outdf.loc[i, "memory_limit"] if pd.notna(outdf.loc[i, "memory_limit"]) and outdf.loc[i, "memory_limit"] else ""
-                                if current_problem_memory_limit_str and "megabytes" in current_problem_memory_limit_str.lower():
-                                    memory_limit_val = int(current_problem_memory_limit_str.split()[0]) * 1024 * 1024 # Convert MB to Bytes
-                                elif current_problem_memory_limit_str and "bytes" in current_problem_memory_limit_str.lower():
-                                    memory_limit_val = int(current_problem_memory_limit_str.split()[0]) # Already in Bytes
-                                else: # Default if format is unknown or empty
-                                    memory_limit_val = MEMLIMIT # MEMLIMIT is in Bytes
+                                except psutil.NoSuchProcess:
+                                    break
 
-                                # MEMLIMIT check is still against total RSS (peak_rss_memory or current_rss)
-                                if current_rss > memory_limit_val:
+                                # MEMLIMIT check is now against private memory (peak_private_memory or current_private)
+                                if current_private > memory_limit_val:
                                     proc.terminate()
-                                    print(f"{prefix}!!! Process exceeded memory limit (RSS: {current_rss / (1024*1024):.2f} MB > Limit: {memory_limit_val / (1024*1024):.2f} MB) at test case {j+1} / {len(input_data)} !!!")
-                                    raise MemoryError(f"Memory limit exceeded (RSS): {current_rss / 1024 / 1024:.2f} MB")
+                                    print(f"{prefix}!!! Process exceeded memory limit (Private: {current_private / (1024*1024):.2f} MB > Limit: {memory_limit_val / (1024*1024):.2f} MB) at test case {j+1} / {len(input_data)} !!!")
+                                    raise MemoryError(f"Memory limit exceeded (Private): {current_private / 1024 / 1024:.2f} MB")
                                 time.sleep(0.01)  # check every 10ms
                                 
                                 # Check if the process has exceeded the timeout or time limit
