@@ -41,7 +41,7 @@ for model in MODELS:
 
     # Initialize default values, for lists, they need to be initialized as empty lists for each row
     # this is important to avoid issues with appending later (think of it as setting the same pointer to all the rows if using "=[]")
-    for col in ['execution_time', 'memory_usage_mb', 'return_code', 'stdout', 'stderr', 'correct']:
+    for col in ['execution_time', 'memory_usage_mb', 'private_memory_usage_mb', 'return_code', 'stdout', 'stderr', 'correct']: # Added 'private_memory_usage_mb'
         outdf[col] = [[] for _ in range(len(outdf))]
     outdf['compilation_return_code'] = np.nan
     outdf['passed'] = False
@@ -93,16 +93,25 @@ for model in MODELS:
                         if input_item is list:
                             input_item = '\n'.join(map(str, input_item))
 
-                        
-
                         proc.stdin.write(str(input_item) + '\n')  # Send input to the program
                         proc.stdin.flush()  # Ensure the input is sent
 
-                        peak_memory = 0
+                        # peak_memory = 0 # Will be peak_rss_memory
+                        peak_rss_memory = 0 
+                        peak_private_memory = 0 # For tracking peak private memory
                         try:
                             while proc.poll() is None:
-                                mem = ps_proc.memory_info().rss  # in bytes
-                                peak_memory = max(peak_memory, mem)
+                                # mem = ps_proc.memory_info().rss  # in bytes
+                                # peak_memory = max(peak_memory, mem)
+                                try:
+                                    mem_info = ps_proc.memory_info()
+                                    current_rss = mem_info.rss
+                                    current_private = mem_info.private # Get private working set on Windows
+                                    
+                                    peak_rss_memory = max(peak_rss_memory, current_rss)
+                                    peak_private_memory = max(peak_private_memory, current_private)
+                                except psutil.NoSuchProcess: # Process might have ended
+                                    break 
                                 
                                 # Get memory limit for current problem i
                                 current_problem_memory_limit_str = outdf.loc[i, "memory_limit"] if pd.notna(outdf.loc[i, "memory_limit"]) and outdf.loc[i, "memory_limit"] else ""
@@ -113,10 +122,11 @@ for model in MODELS:
                                 else: # Default if format is unknown or empty
                                     memory_limit_val = MEMLIMIT # MEMLIMIT is in Bytes
 
-                                if mem > memory_limit_val:
+                                # MEMLIMIT check is still against total RSS (peak_rss_memory or current_rss)
+                                if current_rss > memory_limit_val:
                                     proc.terminate()
-                                    print(f"{prefix}!!! Process exceeded memory limit of {memory_limit_val / (1024*1024)} MB at test case {j+1} / {len(input_data)} !!!")
-                                    raise MemoryError(f"Memory limit exceeded: {mem / 1024 / 1024:.2f} MB")
+                                    print(f"{prefix}!!! Process exceeded memory limit (RSS: {current_rss / (1024*1024):.2f} MB > Limit: {memory_limit_val / (1024*1024):.2f} MB) at test case {j+1} / {len(input_data)} !!!")
+                                    raise MemoryError(f"Memory limit exceeded (RSS): {current_rss / 1024 / 1024:.2f} MB")
                                 time.sleep(0.01)  # check every 10ms
                                 
                                 # Check if the process has exceeded the timeout or time limit
@@ -140,11 +150,14 @@ for model in MODELS:
                         if len(stderr) > 0:
                             print(stderr)
                         print(f"{prefix}Execution Time: {round(end_time - start_time, 4)} seconds")
-                        print(f"{prefix}Peak Memory Usage: {round(peak_memory / 1024 / 1024, 2)} MB")
+                        print(f"{prefix}Peak RSS Memory Usage: {round(peak_rss_memory / 1024 / 1024, 2)} MB")
+                        print(f"{prefix}Peak Private Memory Usage: {round(peak_private_memory / 1024 / 1024, 2)} MB")
 
                         # Store results in DataFrame
                         outdf.at[i, 'execution_time'].append(round(end_time - start_time, 4))
-                        outdf.at[i, 'memory_usage_mb'].append(round(peak_memory / 1024 / 1024, 2))
+                        # outdf.at[i, 'memory_usage_mb'].append(round(peak_memory / 1024 / 1024, 2))
+                        outdf.at[i, 'memory_usage_mb'].append(round(peak_rss_memory / 1024 / 1024, 2)) # This is RSS
+                        outdf.at[i, 'private_memory_usage_mb'].append(round(peak_private_memory / 1024 / 1024, 2)) # Store private memory
                         outdf.at[i, 'return_code'].append(proc.returncode)
                         outdf.at[i, 'stdout'].append(stdout)
                         outdf.at[i, 'stderr'].append(stderr)
@@ -176,7 +189,9 @@ for model in MODELS:
                     except MemoryError as e:
                         print(f"{prefix}Memory error occurred: {e}")
                         outdf.at[i, 'execution_time'].append(None)
-                        outdf.at[i, 'memory_usage_mb'].append(None)
+                        # outdf.at[i, 'memory_usage_mb'].append(round(peak_memory / 1024 / 1024, 2) if peak_memory > 0 else None)
+                        outdf.at[i, 'memory_usage_mb'].append(round(peak_rss_memory / 1024 / 1024, 2) if peak_rss_memory > 0 else None)
+                        outdf.at[i, 'private_memory_usage_mb'].append(round(peak_private_memory / 1024 / 1024, 2) if peak_private_memory > 0 else None)
                         outdf.at[i, 'return_code'].append(None) # MemoryError doesn't have returncode
                         outdf.at[i, 'stdout'].append(None)
                         outdf.at[i, 'stderr'].append(str(e))
