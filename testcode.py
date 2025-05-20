@@ -10,7 +10,7 @@ import platform
 
 OUTPUT_PATH = './responses'
 INPUT_PATH = './prompts/input.csv'
-MODELS = ['chatgpt_4o_solutions.csv', 'deepseek-r1-solutions.csv', 'gemini_2.5_flash_solutions.csv']
+MODELS = ['chatgpt_o4_mini_solutions.csv', 'deepseek_r1_solutions.csv', 'gemini_2.5_flash_solutions.csv']
 TIMEOUT = 5  # seconds
 MEMLIMIT = 1 * 1024 * 1024 # 1 GB in bytes
 prefix = ">>> "
@@ -21,17 +21,14 @@ if model is None:
     print("Testing all models.")
 else:
     if model == "chatgpt":
-        MODELS = ['chatgpt_4o_solutions.csv']
+        MODELS = ['chatgpt_o4_mini_solutions.csv']
     elif model == "deepseek":
-        MODELS = ['deepseek-r1-solutions.csv']
+        MODELS = ['deepseek_r1_solutions.csv']
     elif model == "gemini":
         MODELS = ['gemini_2.5_flash_solutions.csv']
 
 # Detect OS once at the top
 OS_TYPE = platform.system().lower()  # 'windows', 'linux', 'darwin' (macOS)
-
-# indf = pd.read_csv(f"{INPUT_PATH}")
-# indf.reset_index(drop=True, inplace=True)
 
 for model in MODELS:
     if not os.path.exists(f"{OUTPUT_PATH}/{model}"):
@@ -84,13 +81,8 @@ for model in MODELS:
                 current_problem_inputs_str = outdf.loc[i, 'inputs'] # Get inputs for current problem i
                 input_data = eval(current_problem_inputs_str) if isinstance(current_problem_inputs_str, str) else current_problem_inputs_str
 
-                # It's safer to use json.loads if your CSV stores lists as JSON strings:
                 # import json
                 # input_data = json.loads(current_problem_inputs_str) if isinstance(current_problem_inputs_str, str) else current_problem_inputs_str
-                
-                # Initialize lists for storing results for problem i
-                # These are already initialized outside the loop, which is good.
-                # Ensure they are cleared or correctly managed if re-running for the same problem index i (not an issue with current structure)
 
                 all_test_cases_passed = True # Flag for current problem i
 
@@ -98,6 +90,24 @@ for model in MODELS:
                     
                     print(f"{prefix}Testing test case {j+1} / {len(input_data)} ...")
                     try:
+                        base_proc = subprocess.Popen(['try.exe'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True)
+                        ps_base_proc = psutil.Process(base_proc.pid)
+                        peak_base_private_memory = 0
+                        while base_proc.poll() is None:
+                            try:
+                                mem_info = ps_base_proc.memory_full_info()
+                                if OS_TYPE == 'windows':
+                                    # On Windows, use 'private'
+                                    base_current_private = getattr(mem_info, 'private', mem_info.rss)
+                                else:
+                                    # On Linux/macOS, use 'uss' if available, else fallback to 'rss'
+                                    base_current_private = getattr(mem_info, 'uss', mem_info.rss)
+                                peak_base_private_memory = max(peak_base_private_memory, base_current_private)
+                            except psutil.NoSuchProcess:
+                                break
+                            time.sleep(0.001)
+                        
+
                         proc = subprocess.Popen([exe_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True)
                         start_time = time.perf_counter()
                         ps_proc = psutil.Process(proc.pid)
@@ -131,7 +141,7 @@ for model in MODELS:
                                     break
 
                                 # MEMLIMIT check is now against private memory (peak_private_memory or current_private)
-                                if current_private > memory_limit_val:
+                                if current_private - peak_base_private_memory > memory_limit_val:
                                     proc.terminate()
                                     print(f"{prefix}!!! Process exceeded memory limit (Private: {current_private / (1024*1024):.2f} MB > Limit: {memory_limit_val / (1024*1024):.2f} MB) at test case {j+1} / {len(input_data)} !!!")
                                     raise MemoryError(f"Memory limit exceeded (Private): {current_private / 1024 / 1024:.2f} MB")
@@ -140,7 +150,7 @@ for model in MODELS:
                                 # Check if the process has exceeded the timeout or time limit
                                 # Get time limit for current problem i
                                 current_problem_time_limit_str = outdf.loc[i, "time_limit"] if pd.notna(outdf.loc[i, "time_limit"]) and outdf.loc[i, "time_limit"] else f"{TIMEOUT} seconds"
-                                time_limit = int(current_problem_time_limit_str.split()[0]) # Assumes "X seconds"
+                                time_limit = float(current_problem_time_limit_str.split()[0]) # Assumes "X seconds" (supports fractional seconds)
                                 if time.perf_counter() - start_time > time_limit:
                                     proc.terminate()
                                     print(f"{prefix}!!! Process exceeded timeout of {time_limit} seconds at test case {j+1} / {len(input_data)} !!!")
@@ -153,13 +163,14 @@ for model in MODELS:
 
                         stdout, stderr = proc.communicate()
 
-                        print(f"{prefix}Output:")
-                        print(f"{prefix}{stdout}")
+                        print(f"{prefix}Output: {stdout.strip()}")
+                        print(f"{prefix}Test Case Output: {eval(outdf.loc[i, 'outputs'])[j].strip()}")
                         if len(stderr) > 0:
                             print(stderr)
                         print(f"{prefix}Execution Time: {round(end_time - start_time, 4)} seconds")
                         print(f"{prefix}Peak RSS Memory Usage: {round(peak_rss_memory / 1024 / 1024, 2)} MB")
-                        print(f"{prefix}Peak Private Memory Usage: {round(peak_private_memory / 1024 / 1024, 2)} MB")
+                        print(f"{prefix}Peak Private Memory Usage: {round((peak_private_memory) / 1024 / 1024, 2)} MB")
+                        print(f"{prefix}Peak Base Private Memory Usage: {round((peak_base_private_memory) / 1024 / 1024, 2)} MB")
 
                         # Store results in DataFrame
                         outdf.at[i, 'execution_time'].append(round(end_time - start_time, 4))
