@@ -119,8 +119,8 @@ def promptDeepSeek(idx: int) -> Tuple[str, int, int]:
     raise Exception("DeepSeek model is not initialized.")
   
   try:
-    response = deepseek.completions.create(
-      model='deepseek-chat',
+    response = deepseek.chat.completions.create(
+      model='deepseek-reasoner',
       messages=[
         {
           "role": "user",
