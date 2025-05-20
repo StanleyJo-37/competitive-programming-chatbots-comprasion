@@ -5,16 +5,33 @@ import time
 import psutil
 import pandas as pd
 import numpy as np
+import sys
+import platform
 
 OUTPUT_PATH = './responses'
 INPUT_PATH = './prompts/input.csv'
-MODELS = ['chatgpt_4o_solutions.csv', 'deepseek-r1-solutions.csv', 'gemini_2.0_flash_solutions.csv']
+MODELS = ['chatgpt_4o_solutions.csv', 'deepseek-r1-solutions.csv', 'gemini_2.5_flash_solutions.csv']
 TIMEOUT = 5  # seconds
 MEMLIMIT = 1 * 1024 * 1024 # 1 GB in bytes
 prefix = ">>> "
 
-indf = pd.read_csv(f"{INPUT_PATH}")
-indf.reset_index(drop=True, inplace=True)
+args = sys.argv
+model = args[1] if len(args) > 1 else None
+if model is None:
+    print("Testing all models.")
+else:
+    if model == "chatgpt":
+        MODELS = ['chatgpt_4o_solutions.csv']
+    elif model == "deepseek":
+        MODELS = ['deepseek-r1-solutions.csv']
+    elif model == "gemini":
+        MODELS = ['gemini_2.5_flash_solutions.csv']
+
+# Detect OS once at the top
+OS_TYPE = platform.system().lower()  # 'windows', 'linux', 'darwin' (macOS)
+
+# indf = pd.read_csv(f"{INPUT_PATH}")
+# indf.reset_index(drop=True, inplace=True)
 
 for model in MODELS:
     if not os.path.exists(f"{OUTPUT_PATH}/{model}"):
@@ -22,30 +39,33 @@ for model in MODELS:
         exit(1)
     
     # Read the CSV file
-    outdf = pd.read_csv(f"{OUTPUT_PATH}/{MODELS[0]}")
+    outdf = pd.read_csv(f"{OUTPUT_PATH}/{model}")
     
-    assert len(outdf) == len(indf), "Input and output dataframes must have the same length."
-
     outdf.reset_index(drop=True, inplace=True)
 
     # Initialize default values, for lists, they need to be initialized as empty lists for each row
     # this is important to avoid issues with appending later (think of it as setting the same pointer to all the rows if using "=[]")
-    outdf['execution_time'] = [[] for _ in range(len(outdf))]
-    outdf['memory_usage_mb'] = [[] for _ in range(len(outdf))]
-    outdf['return_code'] = [[] for _ in range(len(outdf))]
-    outdf['stdout'] = [[] for _ in range(len(outdf))]
-    outdf['stderr'] = [[] for _ in range(len(outdf))]
-    outdf['correct'] = [[] for _ in range(len(outdf))]
+    for col in ['execution_time', 'memory_usage_mb', 'private_memory_usage_mb', 'return_code', 'stdout', 'stderr', 'correct']: # Added 'private_memory_usage_mb'
+        outdf[col] = [[] for _ in range(len(outdf))]
     outdf['compilation_return_code'] = np.nan
     outdf['passed'] = False
 
-    for i, data in enumerate(outdf.values):
+    for i, data_row_values in enumerate(outdf.values): # Renamed 'data' to avoid confusion
         print(f"=================== Processing row {i + 1}/{len(outdf)} ===================")
+        # Get memory limit for current problem i
+        current_problem_memory_limit_str = outdf.loc[i, "memory_limit"] if pd.notna(outdf.loc[i, "memory_limit"]) and outdf.loc[i, "memory_limit"] else ""
+        if current_problem_memory_limit_str and "megabytes" in current_problem_memory_limit_str.lower():
+            memory_limit_val = int(current_problem_memory_limit_str.split()[0]) * 1024 * 1024 # Convert MB to Bytes
+        elif current_problem_memory_limit_str and "bytes" in current_problem_memory_limit_str.lower():
+            memory_limit_val = int(current_problem_memory_limit_str.split()[0]) # Already in Bytes
+        else: # Default if format is unknown or empty
+            memory_limit_val = MEMLIMIT # MEMLIMIT is in Bytes
+
 
         print(f"{prefix}Writing temp file ...")
         # Step 1: Write C++ code to temp file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.cpp', delete=False) as cpp_file:
-            cpp_file.write(data['solutions'])
+            cpp_file.write(outdf.loc[i, 'response']) # Use outdf.loc here
             cpp_filename = cpp_file.name
 
         try:
@@ -61,37 +81,66 @@ for model in MODELS:
                 
             else:
                 print(f"{prefix}Running compiled C++ code...\n")
-                input_data = eval(indf['inputs']) if isinstance(indf['inputs'], str) else indf['inputs']
+                current_problem_inputs_str = outdf.loc[i, 'inputs'] # Get inputs for current problem i
+                input_data = eval(current_problem_inputs_str) if isinstance(current_problem_inputs_str, str) else current_problem_inputs_str
+
+                # It's safer to use json.loads if your CSV stores lists as JSON strings:
+                # import json
+                # input_data = json.loads(current_problem_inputs_str) if isinstance(current_problem_inputs_str, str) else current_problem_inputs_str
+                
+                # Initialize lists for storing results for problem i
+                # These are already initialized outside the loop, which is good.
+                # Ensure they are cleared or correctly managed if re-running for the same problem index i (not an issue with current structure)
+
+                all_test_cases_passed = True # Flag for current problem i
 
                 for j, input_item in enumerate(input_data):
                     
                     print(f"{prefix}Testing test case {j+1} / {len(input_data)} ...")
-                    # Step 3: Launch and monitor with psutil
-                    start_time = time.perf_counter()
                     try:
                         proc = subprocess.Popen([exe_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True)
+                        start_time = time.perf_counter()
                         ps_proc = psutil.Process(proc.pid)
 
                         # Send input to the program
-                        proc.stdin.write(input_item + '\n')
+                        if input_item is list:
+                            input_item = '\n'.join(map(str, input_item))
+
+                        proc.stdin.write(str(input_item) + '\n')  # Send input to the program
                         proc.stdin.flush()  # Ensure the input is sent
 
-                        peak_memory = 0
+                        # peak_memory = 0 # Will be peak_rss_memory
+                        peak_rss_memory = 0 
+                        peak_private_memory = 0 # For tracking peak private memory
                         try:
                             while proc.poll() is None:
-                                mem = ps_proc.memory_info().rss  # in bytes
-                                peak_memory = max(peak_memory, mem)
-                                memory_limit_str = indf.loc[j,"memory_limit"] if indf.loc[j,"memory_limit"] else f"{MEMLIMIT} megabytes"
-                                memory_limit = int(memory_limit_str.split()[0])
-                                if mem > memory_limit:
+                                # mem = ps_proc.memory_info().rss  # in bytes
+                                # peak_memory = max(peak_memory, mem)
+                                try:
+                                    mem_info = ps_proc.memory_full_info()
+                                    if OS_TYPE == 'windows':
+                                        # On Windows, use 'private'
+                                        current_private = getattr(mem_info, 'private', mem_info.rss)
+                                    else:
+                                        # On Linux/macOS, use 'uss' if available, else fallback to 'rss'
+                                        current_private = getattr(mem_info, 'uss', mem_info.rss)
+                                    current_rss = mem_info.rss
+                                    peak_rss_memory = max(peak_rss_memory, current_rss)
+                                    peak_private_memory = max(peak_private_memory, current_private)
+                                except psutil.NoSuchProcess:
+                                    break
+
+                                # MEMLIMIT check is now against private memory (peak_private_memory or current_private)
+                                if current_private > memory_limit_val:
                                     proc.terminate()
-                                    print(f"{prefix}!!! Process exceeded memory limit of {memory_limit} MB at test case {j+1} / {len(input_data)} !!!")
-                                    raise MemoryError(f"Memory limit exceeded: {mem / 1024 / 1024} MB")
+                                    print(f"{prefix}!!! Process exceeded memory limit (Private: {current_private / (1024*1024):.2f} MB > Limit: {memory_limit_val / (1024*1024):.2f} MB) at test case {j+1} / {len(input_data)} !!!")
+                                    raise MemoryError(f"Memory limit exceeded (Private): {current_private / 1024 / 1024:.2f} MB")
                                 time.sleep(0.01)  # check every 10ms
                                 
                                 # Check if the process has exceeded the timeout or time limit
-                                time_limit_str = indf.loc[j, "time_limit"] if indf.loc[j,"time_limit"] else f"{TIMEOUT} seconds"
-                                time_limit = int(time_limit_str.split()[0])
+                                # Get time limit for current problem i
+                                current_problem_time_limit_str = outdf.loc[i, "time_limit"] if pd.notna(outdf.loc[i, "time_limit"]) and outdf.loc[i, "time_limit"] else f"{TIMEOUT} seconds"
+                                time_limit = int(current_problem_time_limit_str.split()[0]) # Assumes "X seconds"
                                 if time.perf_counter() - start_time > time_limit:
                                     proc.terminate()
                                     print(f"{prefix}!!! Process exceeded timeout of {time_limit} seconds at test case {j+1} / {len(input_data)} !!!")
@@ -109,46 +158,82 @@ for model in MODELS:
                         if len(stderr) > 0:
                             print(stderr)
                         print(f"{prefix}Execution Time: {round(end_time - start_time, 4)} seconds")
-                        print(f"{prefix}Peak Memory Usage: {round(peak_memory / 1024 / 1024, 2)} MB")
+                        print(f"{prefix}Peak RSS Memory Usage: {round(peak_rss_memory / 1024 / 1024, 2)} MB")
+                        print(f"{prefix}Peak Private Memory Usage: {round(peak_private_memory / 1024 / 1024, 2)} MB")
 
                         # Store results in DataFrame
                         outdf.at[i, 'execution_time'].append(round(end_time - start_time, 4))
-                        outdf.at[i, 'memory_usage_mb'].append(round(peak_memory / 1024 / 1024, 2))
+                        # outdf.at[i, 'memory_usage_mb'].append(round(peak_memory / 1024 / 1024, 2))
+                        outdf.at[i, 'memory_usage_mb'].append(round(peak_rss_memory / 1024 / 1024, 2)) # This is RSS
+                        outdf.at[i, 'private_memory_usage_mb'].append(round(peak_private_memory / 1024 / 1024, 2)) # Store private memory
                         outdf.at[i, 'return_code'].append(proc.returncode)
                         outdf.at[i, 'stdout'].append(stdout)
                         outdf.at[i, 'stderr'].append(stderr)
-                        outdf.at[i, 'correct'].append(indf['outputs'][j].strip() == stdout.strip())
+                        
+                        # Get expected outputs for current problem i
+                        current_problem_expected_outputs_str = outdf.loc[i, 'outputs']
+                        expected_outputs_list = eval(current_problem_expected_outputs_str) if isinstance(current_problem_expected_outputs_str, str) else current_problem_expected_outputs_str
+                        # Again, consider json.loads for safety:
+                        # import json
+                        # expected_outputs_list = json.loads(current_problem_expected_outputs_str) if isinstance(current_problem_expected_outputs_str, str) else current_problem_expected_outputs_str
+
+                        if j < len(expected_outputs_list):
+                            is_correct = expected_outputs_list[j].strip() == stdout.strip()
+                        else:
+                            print(f"{prefix}Warning: Not enough expected outputs for problem {i}, test case {j}.")
+                            is_correct = False # Or handle as an error
+                        outdf.at[i, 'correct'].append(is_correct)
+                        if not is_correct:
+                            all_test_cases_passed = False
                     except (subprocess.SubprocessError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                         print(f"{prefix}Runtime error occurred: {e}")
                         outdf.at[i, 'execution_time'].append(None)
                         outdf.at[i, 'memory_usage_mb'].append(None)
-                        outdf.at[i, 'return_code'].append(e.returncode)
+                        outdf.at[i, 'return_code'].append(getattr(e, 'returncode', None)) # Safer access
                         outdf.at[i, 'stdout'].append(None)
                         outdf.at[i, 'stderr'].append(str(e))
                         outdf.at[i, 'correct'].append(False)
+                        all_test_cases_passed = False
                     except MemoryError as e:
                         print(f"{prefix}Memory error occurred: {e}")
                         outdf.at[i, 'execution_time'].append(None)
-                        outdf.at[i, 'memory_usage_mb'].append(None)
-                        outdf.at[i, 'return_code'].append(None)
+                        # outdf.at[i, 'memory_usage_mb'].append(round(peak_memory / 1024 / 1024, 2) if peak_memory > 0 else None)
+                        outdf.at[i, 'memory_usage_mb'].append(round(peak_rss_memory / 1024 / 1024, 2) if peak_rss_memory > 0 else None)
+                        outdf.at[i, 'private_memory_usage_mb'].append(round(peak_private_memory / 1024 / 1024, 2) if peak_private_memory > 0 else None)
+                        outdf.at[i, 'return_code'].append(None) # MemoryError doesn't have returncode
                         outdf.at[i, 'stdout'].append(None)
                         outdf.at[i, 'stderr'].append(str(e))
                         outdf.at[i, 'correct'].append(False)
-                
-                # Check if the program passed
-                if all(outdf.at[i, 'correct']):
-                    outdf.at[i, 'passed'] = True
-                    print(f"{prefix}Test passed for row {i + 1}/{len(outdf)}")
+                        all_test_cases_passed = False
+        
+            # Check if the program passed all test cases for problem i
+            # The 'correct' list for outdf.at[i, 'correct'] now holds booleans for each test case
+            if compile_result.returncode == 0 and outdf.at[i, 'correct'] and all(outdf.at[i, 'correct']): # Also ensure compilation succeeded
+                outdf.at[i, 'passed'] = True
+                print(f"{prefix}All test cases PASSED for problem {i + 1}/{len(outdf)}")
+            else:
+                # Ensure 'passed' is False if compilation failed or any test case failed
+                outdf.at[i, 'passed'] = False 
+                if compile_result.returncode != 0:
+                    print(f"{prefix}Compilation FAILED for problem {i + 1}/{len(outdf)}")
                 else:
-                    outdf.at[i, 'passed'] = False
-                    print(f"{prefix}Test failed for row {i + 1}/{len(outdf)}")
+                    print(f"{prefix}One or more test cases FAILED for problem {i + 1}/{len(outdf)}")
 
         finally:
-            if os.path.exists(cpp_filename):
-                os.remove(cpp_filename)
-            if os.path.exists(exe_filename):
-                os.remove(exe_filename)
-    
-    # Save the DataFrame to a new CSV file
-    outdf.to_csv(f"{OUTPUT_PATH}/{model}", index=False)
-    print(f"{prefix}Results saved to {OUTPUT_PATH}/{model}")
+            # Clean up temp files for the current problem i
+            if 'cpp_filename' in locals() and os.path.exists(cpp_filename):
+                try:
+                    os.remove(cpp_filename)
+                    # print(f"{prefix}Removed temp C++ file: {cpp_filename}") # Optional: for debugging
+                except OSError as e:
+                    print(f"{prefix}Error removing temp C++ file {cpp_filename}: {e}")
+            if 'exe_filename' in locals() and os.path.exists(exe_filename):
+                try:
+                    os.remove(exe_filename)
+                    # print(f"{prefix}Removed temp EXE file: {exe_filename}") # Optional: for debugging
+                except OSError as e:
+                    print(f"{prefix}Error removing temp EXE file {exe_filename}: {e}")
+
+# After processing all problems for the current model, save the DataFrame
+print(f"{prefix}Saving updated results to {OUTPUT_PATH}/{model} ...")
+outdf.to_csv(f"{OUTPUT_PATH}/{model}", index=False)
