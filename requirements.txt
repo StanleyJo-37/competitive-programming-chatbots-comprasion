@@ -6,3 +6,4 @@ psutil
 openai
 google-genai
 pyarrow
+schema
