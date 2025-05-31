@@ -19,15 +19,15 @@ gemini = None
 chatgpt = None
 
 model_csv_names = {
-  'gemini': 'gemini_2.0_flash_solutions.csv',
-  'deepseek': 'deepseek_r1_flash_solutions.csv',
-  'chatgpt': 'chatgpt_4o_solutions.csv',
+  'gemini': 'gemini_2.5_flash_solutions.csv',
+  'deepseek': 'deepseek_r1_solutions.csv',
+  'chatgpt': 'chatgpt_4.1_solutions.csv',
 }
 
 INPUT_CSV = './prompts/input.csv'
 RESPONSE_PATH = './responses/'
 
-all_prompts = pd.read_csv(INPUT_CSV, index_col=0)
+all_prompts = pd.read_csv(INPUT_CSV)
 
 def initDeepSeekV3Model() -> bool:
   try:
@@ -63,7 +63,7 @@ def initGeminiPro25PreviewModel() -> bool:
 
         global gemini
         # gemini = genai.GenerativeModel(model_name="gemini-2.5-pro-exp-03-25")  # ✅
-        gemini = genai.GenerativeModel(model_name="gemini-2.5-flash-preview-04-17")  # ✅
+        gemini = genai.GenerativeModel(model_name="gemini-2.5-flash-preview-05-20")  # ✅
 
         print("Gemini Initialized.")
         return True
@@ -119,8 +119,8 @@ def promptDeepSeek(idx: int) -> Tuple[str, int, int]:
     raise Exception("DeepSeek model is not initialized.")
   
   try:
-    response = deepseek.completions.create(
-      model='deepseek-chat',
+    response = deepseek.chat.completions.create(
+      model='deepseek-reasoner',
       messages=[
         {
           "role": "user",
@@ -163,7 +163,7 @@ def promptChatGPT(idx: int) -> Tuple[str, int, int]:
     raise Exception("ChatGPT model is not initialized.")
   
   response = chatgpt.completions.create(
-    model='gpt-4o-latest',
+    model='gpt-4.1',
     messages=[
       {
         "role": "user",
@@ -240,7 +240,7 @@ if __name__ == '__main__':
     available_indices = all_prompts[~all_prompts['done']].index
     if number_of_row > len(available_indices):
       raise ValueError(f"Requested {number_of_row} rows, but only {len(available_indices)} available.")
-    indices = all_prompts[~all_prompts['done']].sample(number_of_row).index.sort_values()
+    indices = all_prompts[~all_prompts['done']].head(number_of_row).index.sort_values()
   except Exception as e:
     print(f'Error while sampling: {str(e)}')
     available = len(all_prompts[~all_prompts['done']])
