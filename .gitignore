@@ -6,3 +6,5 @@ prompts/input.csv
 
 ./temp
 ./problem-sets
+TestEnv*
+# TestEnv/*
