@@ -120,7 +120,7 @@ def promptDeepSeek(idx: int) -> Tuple[str, int, int]:
   
   try:
     response = deepseek.chat.completions.create(
-      model='deepseek-reasoner',
+      model='deepseek-chat',
       messages=[
         {
           "role": "user",
@@ -162,19 +162,42 @@ def promptChatGPT(idx: int) -> Tuple[str, int, int]:
   if chatgpt == None:
     raise Exception("ChatGPT model is not initialized.")
   
-  response = chatgpt.completions.create(
-    model='gpt-4.1',
-    messages=[
-      {
-        "role": "user",
-        "content": getPrompt(idx)
+  try:
+    response = chatgpt.responses.create(
+      model="gpt-4.1-2025-04-14",
+      input=[
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": getPrompt(idx)
+            }
+          ]
+        }
+      ],
+      text={
+        "format": {
+          "type": "text"
+        }
       },
-    ],
-    stream=False,
-    temperature=0.0,
-  )
+      reasoning={},
+      tools=[],
+      temperature=0.0,
+      max_output_tokens=2048,
+      top_p=0.5,
+      store=True
+    )
+  except Exception as e:
+    print(f'Unexpected Error when prompting ChatGPT: {str(e)}')
+    print("ChatGPT API call failed. Please check your API key and network connection.")
 
-  return (response.choices[0].message.content, response.usage.prompt_tokens, response.usage.completion_tokens)
+
+  return (
+      response.output[0].content[0].text,
+      response.usage.input_tokens,
+      response.usage.output_tokens
+  )
 
 def save_responses(responses: List[Tuple[int, str, int, int, float]], model: Model) -> int:
   saved_response_count = 0
