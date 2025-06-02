@@ -5,6 +5,9 @@ load_dotenv()
 
 args = sys.argv
 
+os.environ.pop("DOMJUDGE_CONTEST_ID", None)
+os.environ.pop("DOMJUDGE_ADMIN_PASS", None)
+
 AUTH = (os.getenv("DOMJUDGE_ADMIN_NAME"), os.getenv("DOMJUDGE_ADMIN_PASS"))
 API_URL = os.getenv("DOMJUDGE_API_URL")
 CONTEST_ID = os.getenv("DOMJUDGE_CONTEST_ID")
@@ -12,30 +15,27 @@ CONTEST_ID = os.getenv("DOMJUDGE_CONTEST_ID")
 API_URL = os.getenv("DOMJUDGE_API_URL")
 
 users = [{
-    "user_id": 24,
-    "team_id": 24,
+    "user_id": 4,
+    "team_id": 1,
     "username": "chatgpt",
     "name": "chatgpt",
     "password": "chatgpt_pw1",
     "roles": ["team"],
   },{
-    "user_id": 25,
-    "team_id": 25,
+    "user_id": 5,
+    "team_id": 2,
     "username": "gemini",
     "name": "gemini",
     "password": "gemini_pw1",
     "roles": ["team"],
   },{
-    "user_id": 26,
-    "team_id": 26,
+    "user_id": 6,
+    "team_id": 3,
     "username": "deepseek",
     "name": "deepseek",
     "password": "deepseek_pw1",
     "roles": ["team"],
 }]
-
-def sanitize_solution(solution):
-  return solution
 
 def submit_solutions(username: str, password: str, problem_id: int, index: int):
 
@@ -69,7 +69,7 @@ def submit_solutions(username: str, password: str, problem_id: int, index: int):
     else:
       print(f"❌ Failed to submit {cpp_path}: {response.status_code} - {response.text} at contest {CONTEST_ID} for {username}")
 
-OFFSET = 607
+OFFSET = 4
 
 for u in users:
   

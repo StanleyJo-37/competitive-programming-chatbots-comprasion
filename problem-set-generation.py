@@ -10,6 +10,9 @@ from schema import SchemaError
 import yaml
 import ast
 
+os.environ.pop("DOMJUDGE_CONTEST_ID", None)
+os.environ.pop("DOMJUDGE_ADMIN_PASS", None)
+
 load_dotenv()
 
 AUTH = (os.getenv("DOMJUDGE_ADMIN_NAME"), os.getenv("DOMJUDGE_ADMIN_PASS"))
@@ -202,12 +205,12 @@ def generate_problem_archive(problem_set, index):
 
 problem_df = pd.read_csv("./prompts/new_input.csv")
 
-for i, row in problem_df.iterrows():
-  print(f"Generating problem set no. {i + 1}")
+# for i, row in problem_df.iterrows():
+#   print(f"Generating problem set no. {i + 1}")
 
-  generate_problem_archive(row, i)
+#   generate_problem_archive(row, i)
   
-  print('\n' + "=" * 60 + '\n')
+#   print('\n' + "=" * 60 + '\n')
 
 def upload_problem_sets():
   

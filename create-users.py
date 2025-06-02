@@ -2,6 +2,9 @@ from dotenv import load_dotenv
 import os
 import requests
 
+os.environ.pop("DOMJUDGE_CONTEST_ID", None)
+os.environ.pop("DOMJUDGE_ADMIN_PASS", None)
+
 load_dotenv()
 
 AUTH = (os.getenv("DOMJUDGE_ADMIN_NAME"), os.getenv("DOMJUDGE_ADMIN_PASS"))
