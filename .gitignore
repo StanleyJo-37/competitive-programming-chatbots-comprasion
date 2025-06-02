@@ -3,3 +3,8 @@ prompts/input.csv
 /venv/
 .env.template
 .DS_Store
+
+./temp
+./problem-sets
+TestEnv*
+# TestEnv/*
