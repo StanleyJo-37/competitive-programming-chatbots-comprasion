@@ -5,6 +5,6 @@ prompts/input.csv
 .DS_Store
 
 ./temp
-./problem-sets
+./problem-sets/*
 TestEnv*
 # TestEnv/*

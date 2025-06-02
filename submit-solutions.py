@@ -1,41 +1,80 @@
-import requests, sys, pandas as pd, os
+import requests, sys, pandas as pd, os, zipfile, tempfile
+from dotenv import load_dotenv
+
+load_dotenv()
 
 args = sys.argv
 
-USERNAME = args[1]
-PASSWORD = args[2]
-CSV_PATH = args[3]
+AUTH = (os.getenv("DOMJUDGE_ADMIN_NAME"), os.getenv("DOMJUDGE_ADMIN_PASS"))
+API_URL = os.getenv("DOMJUDGE_API_URL")
+CONTEST_ID = os.getenv("DOMJUDGE_CONTEST_ID")
 
-API_URL = "http://localhost:8000/api/v4/submissions"
+API_URL = os.getenv("DOMJUDGE_API_URL")
+
+users = [{
+    "user_id": 24,
+    "team_id": 24,
+    "username": "chatgpt",
+    "name": "chatgpt",
+    "password": "chatgpt_pw1",
+    "roles": ["team"],
+  },{
+    "user_id": 25,
+    "team_id": 25,
+    "username": "gemini",
+    "name": "gemini",
+    "password": "gemini_pw1",
+    "roles": ["team"],
+  },{
+    "user_id": 26,
+    "team_id": 26,
+    "username": "deepseek",
+    "name": "deepseek",
+    "password": "deepseek_pw1",
+    "roles": ["team"],
+}]
 
 def sanitize_solution(solution):
   return solution
 
-def submit_solution(solutions: pd.DataFrame):
-  for i, row in solutions.iterrows():
-    solution = sanitize_solution(row["solution"])
+def submit_solutions(username: str, password: str, problem_id: int, index: int):
 
-    full_path = f"./temp-submission/sub{i}.cpp"
+  file_name = f"sub{index}.cpp"
+  cpp_path = f"./submissions/{username}/{file_name}"
 
-    with open(full_path, "W") as new_file:
-      new_file.write(solution)
+  tmp_zip_path = ""
+  with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+    with zipfile.ZipFile(tmp_file.name, "w") as zip_file:
+      zip_file.write(cpp_path, arcname=file_name)
+
+    tmp_zip_path = tmp_file.name
+
+  with open(tmp_zip_path, "rb") as f:
+    files = { 'code': (file_name, f, "text/x-c++src") }
+
+    data = {
+      'language_id': 'cpp',
+      'problem_id': problem_id,
+    }
+
+    response = requests.post(
+                  f"{API_URL}/contests/{CONTEST_ID}/submissions",
+                  auth=(username, password),
+                  files=files,
+                  data=data
+                )
     
-    with open(full_path, "rb") as f:
-      files = { 'code': f }
+    if response.status_code == 200:
+      print(f"✅ Submitted {cpp_path} to problem {problem_id} at contest {CONTEST_ID} for {username}")
+    else:
+      print(f"❌ Failed to submit {cpp_path}: {response.status_code} - {response.text} at contest {CONTEST_ID} for {username}")
 
-      data = {
-        'language_id': 'cpp',
-        'problem_id': row['problem_id'],
-        'contest_id': 0,
-      }
+OFFSET = 607
 
-      response = requests.post(API_URL, auth=(USERNAME, PASSWORD), files=files, data=data)
-      if response.status_code == 201:
-        print(f"✅ Submitted {full_path} to problem {row["problem_id"]}")
-      else:
-        print(f"❌ Failed to submit {full_path}: {response.status_code} - {response.text}")
-
-    os.remove(full_path)
-
-solution_df = pd.read_csv(f"./responses/{args[1]}.csv")
-submit_solution(solution_df)
+for u in users:
+  
+  for i in range(OFFSET, OFFSET + 300):
+    problem_id = i
+    index = i - OFFSET
+    
+    submit_solutions(u["username"], u["password"], problem_id, index)
