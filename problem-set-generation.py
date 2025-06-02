@@ -21,7 +21,8 @@ License_Types = Literal[None, 'unknown', 'public domain', 'cc0', 'cc by', 'cc by
 limits_interface = Schema({
   Optional('time_multiplier'): Or(None, And(Use(int))),
   Optional('time_safety_margin'): Or(None, And(Use(int))),
-  Optional('memory'): Or(None, And(Use(float))),
+  Optional('time'): Or(None, And(Use(int))),
+  Optional('memory'): Or(None, And(Use(int))),
   Optional('output'): Or(None, And(Use(float))),
   Optional('code'): Or(None, And(Use(float))),
   Optional('compilation_time'): Or(None, And(Use(float))),
@@ -124,12 +125,12 @@ def parse_memory_limit(memory_limit: str) -> float:
   if isinstance(memory_limit, str):
     ml = memory_limit.split(" ")
 
-    return ml[0] if ml[1] == 'megabytes' else float(ml[0]) / 1e-6
+    ml_value = float(ml[0])
+    return ml_value * 1024 if ml[1] == 'megabytes' else ml_value / 1024
   else:
     return None
   
 def generate_input_output_dir(problem_set):
-  # inputs = json.loads(problem_set["inputs"])
   inputs = ast.literal_eval(problem_set["inputs"])
   outputs = ast.literal_eval(problem_set["outputs"])
 
@@ -163,15 +164,6 @@ def generate_input_output_dir(problem_set):
 def generate_problem_statement(problem_set, problem_name):
   prompt = problem_set.get("prompts", "")
 
-  # file_content = r"""\documentclass{problem}
-  # \begin{document}
-  # \begin{problem} {+ """ + problem_name + r""" +}{stdin}{stdout}
-
-  # """ + prompt + r"""
-
-  # \end{problem}
-  # \end{document}
-  # """
   file_content = r"""
   <body>
     <p>""" + prompt + """</p>
@@ -190,10 +182,10 @@ def generate_problem_archive(problem_set, index):
   ml = parse_memory_limit(problem_set["memory_limit"])
 
   if tl is not None:
-    limits['time'] = tl
+    limits['time'] = int(tl)
 
   if ml is not None:
-    limits['memory'] = ml
+    limits['memory'] = int(ml)
 
   generate_input_output_dir(problem_set)
   generate_metadata(name=archive_name,
@@ -218,8 +210,12 @@ for i, row in problem_df.iterrows():
   print('\n' + "=" * 60 + '\n')
 
 def upload_problem_sets():
-  all_archives = [os.path.join("./problem-sets", f) for f in os.listdir("./problem-sets") if os.path.isfile(os.path.join("./problem-sets", f))]
   
+  all_archives = sorted(
+    [os.path.join("./problem-sets", f) for f in os.listdir("./problem-sets") if os.path.isfile(os.path.join("./problem-sets", f))],
+    key=lambda x: int(x[15:].split(".")[0])
+  )
+
   for archive in all_archives:
     with open(archive, "rb") as zip_file:
       files = {"zip": (os.path.basename(archive), zip_file, "application/zip")}
